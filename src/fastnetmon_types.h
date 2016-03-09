@@ -54,9 +54,9 @@ class logging_configuration_t {
             filesystem_logging(true), local_syslog_logging(false), remote_syslog_logging(false), remote_syslog_port(0) {}
         bool filesystem_logging;
         std::string filesystem_logging_path;
-    
+
         bool local_syslog_logging;
-        
+
         bool remote_syslog_logging;
         std::string remote_syslog_server;
         unsigned int remote_syslog_port;
@@ -65,7 +65,7 @@ class logging_configuration_t {
 typedef std::pair<uint32_t, uint32_t> subnet_t;
 typedef std::vector<subnet_t> subnet_vector_t;
 
-typedef std::map<subnet_t, std::string> subnet_to_host_group_map_t; 
+typedef std::map<subnet_t, std::string> subnet_to_host_group_map_t;
 typedef std::map<std::string, subnet_vector_t> host_group_map_t;
 
 typedef void (*process_packet_pointer)(simple_packet&);
@@ -238,48 +238,76 @@ class packed_conntrack_hash {
 // This class consists of all configuration of global or per subnet ban thresholds
 class ban_settings_t {
     public:
-        ban_settings_t() : enable_ban(false),
+        ban_settings_t() : enable_ban(false), enable_warn(false), warn_interval_limit(1800),
             enable_ban_for_pps(false), enable_ban_for_bandwidth(false), enable_ban_for_flows_per_second(false),
+            enable_warn_for_pps(false), enable_warn_for_bandwidth(false), enable_warn_for_flows_per_second(false),
             enable_ban_for_tcp_pps(false), enable_ban_for_tcp_bandwidth(false),
+            enable_warn_for_tcp_pps(false), enable_warn_for_tcp_bandwidth(false),
             enable_ban_for_udp_pps(false), enable_ban_for_udp_bandwidth(false),
+            enable_warn_for_udp_pps(false), enable_warn_for_udp_bandwidth(false),
             enable_ban_for_icmp_pps(false), enable_ban_for_icmp_bandwidth(false),
+            enable_warn_for_icmp_pps(false), enable_warn_for_icmp_bandwidth(false),
             ban_threshold_tcp_mbps(0), ban_threshold_tcp_pps(0),
+            warn_threshold_tcp_mbps(0), warn_threshold_tcp_pps(0),
             ban_threshold_udp_mbps(0), ban_threshold_udp_pps(0),
+            warn_threshold_udp_mbps(0), warn_threshold_udp_pps(0),
             ban_threshold_icmp_mbps(0), ban_threshold_icmp_pps(0),
-            ban_threshold_mbps(0), ban_threshold_flows(0), ban_threshold_pps(0) {
+            warn_threshold_icmp_mbps(0), warn_threshold_icmp_pps(0),
+            ban_threshold_mbps(0), ban_threshold_flows(0), ban_threshold_pps(0),
+            warn_threshold_mbps(0), warn_threshold_flows(0), warn_threshold_pps(0) {
 
         }
         bool enable_ban;
-    
+        bool enable_warn;
+        unsigned int warn_interval_limit;
+
         bool enable_ban_for_pps;
         bool enable_ban_for_bandwidth;
         bool enable_ban_for_flows_per_second;
+        bool enable_warn_for_pps;
+        bool enable_warn_for_bandwidth;
+        bool enable_warn_for_flows_per_second;
 
         bool enable_ban_for_tcp_pps;
         bool enable_ban_for_tcp_bandwidth;
-        
+        bool enable_warn_for_tcp_pps;
+        bool enable_warn_for_tcp_bandwidth;
+
         bool enable_ban_for_udp_pps;
         bool enable_ban_for_udp_bandwidth;
+        bool enable_warn_for_udp_pps;
+        bool enable_warn_for_udp_bandwidth;
 
         bool enable_ban_for_icmp_pps;
         bool enable_ban_for_icmp_bandwidth;
+        bool enable_warn_for_icmp_pps;
+        bool enable_warn_for_icmp_bandwidth;
 
         unsigned int ban_threshold_tcp_mbps;
         unsigned int ban_threshold_tcp_pps;
+        unsigned int warn_threshold_tcp_mbps;
+        unsigned int warn_threshold_tcp_pps;
 
         unsigned int ban_threshold_udp_mbps;
-        unsigned int ban_threshold_udp_pps; 
+        unsigned int ban_threshold_udp_pps;
+        unsigned int warn_threshold_udp_mbps;
+        unsigned int warn_threshold_udp_pps;
 
         unsigned int ban_threshold_icmp_mbps;
         unsigned int ban_threshold_icmp_pps;
+        unsigned int warn_threshold_icmp_mbps;
+        unsigned int warn_threshold_icmp_pps;
 
         unsigned int ban_threshold_mbps;
         unsigned int ban_threshold_flows;
         unsigned int ban_threshold_pps;
+        unsigned int warn_threshold_mbps;
+        unsigned int warn_threshold_flows;
+        unsigned int warn_threshold_pps;
 };
 
 
-typedef std::map<std::string, ban_settings_t> host_group_ban_settings_map_t; 
+typedef std::map<std::string, ban_settings_t> host_group_ban_settings_map_t;
 
 // data structure for storing data in Vector
 typedef std::pair<uint32_t, map_element> pair_of_map_elements;
