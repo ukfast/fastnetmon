@@ -306,7 +306,6 @@ class ban_settings_t {
         unsigned int warn_threshold_pps;
 };
 
-
 typedef std::map<std::string, ban_settings_t> host_group_ban_settings_map_t;
 
 // data structure for storing data in Vector
