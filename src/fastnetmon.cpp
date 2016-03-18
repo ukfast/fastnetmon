@@ -763,6 +763,55 @@ void store_data_in_redis(std::string key_name, std::string attack_details) {
 }
 #endif
 
+void split_subnet(subnet_t subnetIP, subnet_t singleIP, std::vector<subnet_t> &allIPS)
+{
+    //Store original subnet IP as it'll later be modified
+    subnet_t toRemove = subnetIP;
+
+    //Make sure subnet isn't a single IP
+    if(subnetIP.second == 32)
+    {
+        allIPS.push_back(std::make_pair(subnetIP.first, subnetIP.second));
+        return;
+    }
+
+    //First check if the IP is actually in the subnet
+    if(in_subnet(singleIP.first, subnetIP.first, subnetIP.second))
+    {
+        //Bisect subnet into two, storing the upper and lower halfs
+        in_addr_t upper, lower;
+        bisect_subnet(subnetIP.first, &subnetIP.second, &upper, &lower);
+
+        //Check which half the IP is in now
+        if(in_subnet(singleIP.first, upper, subnetIP.second))
+        {
+            //Remove the original IP from AllIPS as it's been removed
+            std::vector<subnet_t>::iterator pos = std::find(allIPS.begin(), allIPS.end(), toRemove);
+            if(pos != allIPS.end())
+                allIPS.erase(pos);
+
+            //Lower half of subnet doesn't contain the IP, and so store it
+            allIPS.push_back(std::make_pair(lower, subnetIP.second));
+
+            //IP is in upper half so recursively split it
+            split_subnet(std::make_pair(upper, subnetIP.second), singleIP, allIPS);
+        }
+        else
+        {
+            //Remove the original IP from AllIPS as it's been removed
+            std::vector<subnet_t>::iterator pos = std::find(allIPS.begin(), allIPS.end(), toRemove);
+            if(pos != allIPS.end())
+                allIPS.erase(pos);
+
+            //Upper half does not contain the IP, and so store it
+            allIPS.push_back(std::make_pair(upper, subnetIP.second));
+
+            //IP is in lower half, so recursively split it
+            split_subnet(std::make_pair(lower, subnetIP.second), singleIP, allIPS);
+        }
+    }
+}
+
 std::string draw_table(direction data_direction, bool do_redis_update, sort_type sort_item) {
     std::vector<pair_of_map_elements> vector_for_sort;
 
@@ -1392,6 +1441,72 @@ bool load_configuration_file() {
         }
     }
 
+    //Find single IPs that have their own limits
+    std::vector<std::pair<std::string, subnet_t> > singleIP;
+    for(host_group_map_t::iterator iter = host_groups.begin(); iter != host_groups.end(); iter++)
+    {
+        //Go through each subnet in each subgroup
+        for(unsigned int a = 0; a < iter->second.size(); a++)
+        {
+            //Check if the current subnet is a
+            subnet_t &current_subnet = iter->second[a];
+            if(current_subnet.second == 32)
+            {
+                //This IP has its own limit, mark it
+                singleIP.push_back(std::make_pair(iter->first, current_subnet));
+            }
+        }
+    }
+
+    //Go through each of the marked IPs
+    for(unsigned int a = 0; a < singleIP.size(); a++)
+    {
+        //Go through each subgroup
+        for(host_group_map_t::iterator iter = host_groups.begin(); iter != host_groups.end(); iter++)
+        {
+            //Each subnet in each hostgroup
+            unsigned int actualSize = iter->second.size();
+            for(unsigned int b = 0; b < actualSize; b++)
+            {
+                //Split the subnets to make sure that they don't affect the custom limits
+                split_subnet(iter->second[b], singleIP[a].second, iter->second);
+            }
+
+            //Remove duplicates
+            std::sort(iter->second.begin(), iter->second.end());
+            iter->second.erase(unique( iter->second.begin(), iter->second.end() ), iter->second.end());
+        }
+    }
+
+    //If the larger subgroup specifically contains the smaller IP, we have to remove it
+    for(host_group_map_t::iterator iter = host_groups.begin(); iter != host_groups.end(); iter++)
+    {
+        for(unsigned int a = 0; a < singleIP.size(); a++)
+        {
+            if(iter->first != singleIP[a].first)
+            {
+                //Check if this sub group contains the single IP
+                subnet_vector_t &cHost = host_groups[singleIP[a].first];
+                int findCount = std::count(cHost.begin(), cHost.end(), singleIP[a].second);
+                while(findCount > 0)
+                {
+                    //Keep erasing the duplicates until they're gone. Should be 1 max. If any. Just to be safe.
+                    iter->second.erase(std::find(iter->second.begin(), iter->second.end(), singleIP[a].second));
+                    findCount--;
+                }
+            }
+        }
+    }
+
+    //We've been modifying host_groups. We need to update subnet_to_host_groups
+    subnet_to_host_groups.clear();
+    for(host_group_map_t::iterator iter = host_groups.begin(); iter != host_groups.end(); iter++)
+    {
+        for(unsigned int a = 0; a < iter->second.size(); a++)
+        {
+            subnet_to_host_groups[iter->second[a]] = iter->first;
+        }
+    }
     return true;
 }
 
@@ -2587,12 +2702,12 @@ int main(int argc, char** argv) {
         po::notify(vm);
 
         if (vm.count("help")) {
-            std::cout << desc << std::endl;
+            logger << log4cpp::Priority::INFO << desc;
             exit(EXIT_SUCCESS);
         }
 
         if (vm.count("version")) {
-            std::cout << "Version: " << fastnetmon_version << std::endl;
+            logger << log4cpp::Priority::INFO << "Version: " << fastnetmon_version;
             exit(EXIT_SUCCESS);
         }
 
@@ -2602,7 +2717,7 @@ int main(int argc, char** argv) {
 
         if (vm.count("configuration_file")) {
             global_config_path = vm["configuration_file"].as<std::string>();
-            std::cout << "We will use custom path to configuration file: " << global_config_path << std::endl;
+            logger << log4cpp::Priority::INFO << "We will use custom path to configuration file: " << global_config_path;
         }
     } catch (po::error& e) {
         std::cerr << "ERROR: " << e.what() << std::endl << std::endl;

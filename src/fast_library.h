@@ -127,4 +127,10 @@ std::string serialize_statistic_counters_about_attack(attack_details& current_at
 std::string dns_lookup(std::string domain_name);
 bool store_data_to_stats_server(unsigned short int graphite_port, std::string graphite_host, std::string buffer_as_string);
 
+//Subnet manipulation
+in_addr_t broadcast(in_addr_t ip, unsigned int cidr);
+in_addr_t network(in_addr_t ip, unsigned int cidr);
+int in_subnet(in_addr_t ip, in_addr_t subnet, unsigned int cidr);
+int bisect_subnet(in_addr_t subnet, unsigned int *cidr, in_addr_t *upper_subnet, in_addr_t *lower_subnet);
+
 #endif
