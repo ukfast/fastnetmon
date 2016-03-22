@@ -1344,8 +1344,8 @@ bool load_configuration_file() {
 
         host_group_ban_settings_map[ host_group_name ] =  read_ban_settings(configuration_map, host_group_name);
 
-        //logger << log4cpp::Priority::INFO << "We read " << host_group_name << " ban settings "
-        //    << print_ban_thresholds(host_group_ban_settings_map[ host_group_name ]);
+        logger << log4cpp::Priority::INFO << "We read " << host_group_name << " ban settings "
+            << print_ban_thresholds(host_group_ban_settings_map[ host_group_name ]);
     }
 
     if (configuration_map.count("white_list_path") != 0) {
@@ -2358,7 +2358,7 @@ void recalculate_speed() {
                 // TODO: we should pass type of ddos ban source (pps, flowd, bandwidth)!
                 execute_ip_ban(client_ip, *current_average_speed_element, flow_attack_details, itr->first);
             }
-            else if (we_should_warn_this_ip(current_average_speed_element, current_ban_settings)) {
+            if (we_should_warn_this_ip(current_average_speed_element, current_ban_settings)) {
                 std::string flow_attack_details = "";
 
                 if (enable_conection_tracking) {
@@ -4332,7 +4332,7 @@ ban_settings_t read_ban_settings(configuration_map_t configuration_map, std::str
     }
 
     if (configuration_map.count(prefix + "warn_for_pps") != 0) {
-        ban_settings.enable_warn_for_pps = configuration_map[prefix + "warm_for_pps"] == "on";
+        ban_settings.enable_warn_for_pps = configuration_map[prefix + "warn_for_pps"] == "on";
     }
 
     if (configuration_map.count(prefix + "ban_for_bandwidth") != 0) {
