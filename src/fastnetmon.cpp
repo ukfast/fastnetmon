@@ -222,6 +222,9 @@ bool exabgp_announce_host = false;
 // With this flag we will announce more specfic then whole block Flow Spec announces
 bool exabgp_flow_spec_announces = false;
 
+//Subnets with a cidr of 32
+std::vector<std::pair<std::string, subnet_t> > singleIP;
+
 ban_settings_t global_ban_settings;
 
 void init_global_ban_settings() {
@@ -456,6 +459,7 @@ void convert_integer_to_conntrack_hash_struct(packed_session* packed_connection_
                                               packed_conntrack_hash* unpacked_data);
 uint64_t convert_conntrack_hash_struct_to_integer(packed_conntrack_hash* struct_value);
 void cleanup_ban_list();
+ban_settings_t get_ban_settings_for_this_ip(uint32_t ip, std::string& host_group_name);
 std::string get_attack_description(uint32_t client_ip, attack_details& current_attack);
 void send_attack_details(uint32_t client_ip, attack_details current_attack_details);
 void free_up_all_resources();
@@ -910,6 +914,7 @@ std::string draw_table(direction data_direction, bool do_redis_update, sort_type
         uint64_t mbps_average = convert_speed_to_mbps(bps_average);
 
         std::string is_banned = ban_list.count(client_ip) > 0 ? " *banned* " : "";
+        std::string is_warned = warn_list.count(client_ip) > 0 ? "    *warned* " : "";
 
         // We use setw for alignment
         output_buffer << client_ip_as_string << "\t\t";
@@ -918,7 +923,7 @@ std::string draw_table(direction data_direction, bool do_redis_update, sort_type
         output_buffer << std::setw(6) << mbps << " mbps ";
         output_buffer << std::setw(6) << flows << " flows ";
 
-        output_buffer << is_banned << std::endl;
+        output_buffer << is_warned << "   " << is_banned << std::endl;
 
         element_number++;
     }
@@ -1084,7 +1089,7 @@ bool load_configuration_file() {
 
         boost::split(parsed_config, line, boost::is_any_of(" ="), boost::token_compress_on);
 
-        if (parsed_config.size() == 2) {
+        if (parsed_config.size() > 1) { //Ensure that there's enough data to fill the config map
             configuration_map[parsed_config[0]] = parsed_config[1];
 
             // Well, we parse host groups here
@@ -1093,6 +1098,75 @@ bool load_configuration_file() {
             logger << log4cpp::Priority::ERROR << "Can't parse config line: '" << line << "'";
         }
     }
+
+    //Find single IPs that have their own limits
+    std::vector<std::pair<std::string, subnet_t> > singleIP;
+    for(host_group_map_t::iterator iter = host_groups.begin(); iter != host_groups.end(); iter++)
+    {
+        //Go through each subnet in each subgroup
+        for(unsigned int a = 0; a < iter->second.size(); a++)
+        {
+            //Check if the current subnet is a
+            subnet_t &current_subnet = iter->second[a];
+            if(current_subnet.second == 32)
+            {
+                //This IP has its own limit, mark it
+                singleIP.push_back(std::make_pair(iter->first, current_subnet));
+            }
+        }
+    }
+
+    //Go through each of the marked IPs
+    for(unsigned int a = 0; a < singleIP.size(); a++)
+    {
+        //Go through each subgroup
+        for(host_group_map_t::iterator iter = host_groups.begin(); iter != host_groups.end(); iter++)
+        {
+            //Each subnet in each hostgroup
+            unsigned int actualSize = iter->second.size();
+            for(unsigned int b = 0; b < actualSize; b++)
+            {
+                //Split the subnets to make sure that they don't affect the custom limits
+                split_subnet(iter->second[b], singleIP[a].second, iter->second);
+            }
+
+            //Remove duplicates
+            std::sort(iter->second.begin(), iter->second.end());
+            iter->second.erase(unique( iter->second.begin(), iter->second.end() ), iter->second.end());
+        }
+    }
+
+    //If the larger subgroup specifically contains the smaller IP, we have to remove it
+    for(host_group_map_t::iterator iter = host_groups.begin(); iter != host_groups.end(); iter++)
+    {
+        for(unsigned int a = 0; a < singleIP.size(); a++)
+        {
+            if(iter->first != singleIP[a].first)
+            {
+                //Check if this sub group contains the single IP
+                subnet_vector_t &cHost = host_groups[singleIP[a].first];
+                int findCount = std::count(cHost.begin(), cHost.end(), singleIP[a].second);
+                while(findCount-- > 0)
+                {
+                    //Keep erasing the duplicates until they're gone. Should be 1 max. If any. Just to be safe.
+                    subnet_vector_t::iterator c = std::find(iter->second.begin(), iter->second.end(), singleIP[a].second);
+                    if(c != iter->second.end())
+                        iter->second.erase(std::find(iter->second.begin(), iter->second.end(), singleIP[a].second));
+                }
+            }
+        }
+    }
+
+    //We've been modifying host_groups. We need to update subnet_to_host_groups
+    subnet_to_host_groups.clear();
+    for(host_group_map_t::iterator iter = host_groups.begin(); iter != host_groups.end(); iter++)
+    {
+        for(unsigned int a = 0; a < iter->second.size(); a++)
+        {
+            subnet_to_host_groups[iter->second[a]] = iter->first;
+        }
+    }
+
 
     if (configuration_map.count("enable_connection_tracking")) {
         if (configuration_map["enable_connection_tracking"] == "on") {
@@ -1441,72 +1515,6 @@ bool load_configuration_file() {
         }
     }
 
-    //Find single IPs that have their own limits
-    std::vector<std::pair<std::string, subnet_t> > singleIP;
-    for(host_group_map_t::iterator iter = host_groups.begin(); iter != host_groups.end(); iter++)
-    {
-        //Go through each subnet in each subgroup
-        for(unsigned int a = 0; a < iter->second.size(); a++)
-        {
-            //Check if the current subnet is a
-            subnet_t &current_subnet = iter->second[a];
-            if(current_subnet.second == 32)
-            {
-                //This IP has its own limit, mark it
-                singleIP.push_back(std::make_pair(iter->first, current_subnet));
-            }
-        }
-    }
-
-    //Go through each of the marked IPs
-    for(unsigned int a = 0; a < singleIP.size(); a++)
-    {
-        //Go through each subgroup
-        for(host_group_map_t::iterator iter = host_groups.begin(); iter != host_groups.end(); iter++)
-        {
-            //Each subnet in each hostgroup
-            unsigned int actualSize = iter->second.size();
-            for(unsigned int b = 0; b < actualSize; b++)
-            {
-                //Split the subnets to make sure that they don't affect the custom limits
-                split_subnet(iter->second[b], singleIP[a].second, iter->second);
-            }
-
-            //Remove duplicates
-            std::sort(iter->second.begin(), iter->second.end());
-            iter->second.erase(unique( iter->second.begin(), iter->second.end() ), iter->second.end());
-        }
-    }
-
-    //If the larger subgroup specifically contains the smaller IP, we have to remove it
-    for(host_group_map_t::iterator iter = host_groups.begin(); iter != host_groups.end(); iter++)
-    {
-        for(unsigned int a = 0; a < singleIP.size(); a++)
-        {
-            if(iter->first != singleIP[a].first)
-            {
-                //Check if this sub group contains the single IP
-                subnet_vector_t &cHost = host_groups[singleIP[a].first];
-                int findCount = std::count(cHost.begin(), cHost.end(), singleIP[a].second);
-                while(findCount > 0)
-                {
-                    //Keep erasing the duplicates until they're gone. Should be 1 max. If any. Just to be safe.
-                    iter->second.erase(std::find(iter->second.begin(), iter->second.end(), singleIP[a].second));
-                    findCount--;
-                }
-            }
-        }
-    }
-
-    //We've been modifying host_groups. We need to update subnet_to_host_groups
-    subnet_to_host_groups.clear();
-    for(host_group_map_t::iterator iter = host_groups.begin(); iter != host_groups.end(); iter++)
-    {
-        for(unsigned int a = 0; a < iter->second.size(); a++)
-        {
-            subnet_to_host_groups[iter->second[a]] = iter->first;
-        }
-    }
     return true;
 }
 
@@ -1678,6 +1686,40 @@ bool load_our_networks_list() {
 
     if (file_exists(networks_list_path)) {
         std::vector<std::string> network_list_from_config = read_file_to_vector(networks_list_path);
+        std::vector<subnet_t> network_list;
+        //Convert string network list to subnet_t's
+        for(unsigned int a = 0; a < network_list_from_config.size(); a++)
+        {
+            if(!network_list_from_config[a].empty())
+            {
+                network_list.push_back(convert_subnet_from_string_to_binary_with_cidr_format(network_list_from_config[a]));
+            }
+        }
+
+        //Compare the list to see if any match the hostgroups
+        for(unsigned int a = 0; a < singleIP.size(); a++)
+        {
+            size_t oldNetSize = network_list.size();
+            for(unsigned int b = 0; b < oldNetSize; b++)
+            {
+                if(in_subnet(singleIP[a].second.first, network_list[b].first, network_list[b].second))
+                {
+                    //We need to split the network list by this then
+                    split_subnet(network_list[b], singleIP[a].second, network_list);
+                }
+            }
+        }
+
+        //Remove duplicates
+        std::sort(network_list.begin(), network_list.end());
+        network_list.erase(unique( network_list.begin(), network_list.end() ), network_list.end());
+
+        //Convert the split subnet_t's back into string.......................... *throws up in mouth a little*
+        network_list_from_config.clear();
+        for(unsigned int a = 0; a < network_list.size(); a++)
+        {
+            network_list_from_config.push_back(convert_subnet_to_string(network_list[a]));
+        }
 
         for (std::vector<std::string>::iterator line_itr = network_list_from_config.begin(); line_itr != network_list_from_config.end(); ++line_itr) {
 
@@ -2177,27 +2219,42 @@ void recalculate_speed_thread_handler() {
 }
 
 // Get ban settings for this subnet or return global ban settings
-ban_settings_t get_ban_settings_for_this_subnet(subnet_t subnet) {
-    // Try to find host group for this subnet
-    subnet_to_host_group_map_t::iterator host_group_itr = subnet_to_host_groups.find( subnet );
+ban_settings_t get_ban_settings_for_this_ip(uint32_t ip, std::string& host_group_name) {
+    host_group_name.clear();
+    subnet_t subnet = std::make_pair(ip, 32);
 
-    if (host_group_itr == subnet_to_host_groups.end()) {
-        // We haven't host groups for all subnets, it's OK
+    //Check if the IP is within a subnet
+    for(subnet_to_host_group_map_t::iterator iter = subnet_to_host_groups.begin(); iter != subnet_to_host_groups.end(); iter++)
+    {
+        if(in_subnet(subnet.first, iter->first.first, iter->first.second))
+        {
+            //Match
+            //std::cout << "\nFound a match: " << iter->second;
+            host_group_name = iter->second;
+            break;
+        }
+    }
+
+    //If we couldn't locate it, return global settings
+    if(host_group_name.empty())
+    {
+        host_group_name = "global";
         return global_ban_settings;
     }
 
     // We found host group for this subnet
-    host_group_ban_settings_map_t::iterator hostgroup_settings_itr =
-        host_group_ban_settings_map.find(host_group_itr->second);
+    host_group_ban_settings_map_t::iterator hostgroup_settings_itr = host_group_ban_settings_map.find(host_group_name);
 
     if (hostgroup_settings_itr == host_group_ban_settings_map.end()) {
-        logger << log4cpp::Priority::ERROR << "We can't find ban settings for host group " << host_group_itr->second;
+        //Couldn't find ban settings for subnet
+        host_group_name = "global";
         return global_ban_settings;
     }
 
     // We found ban settings for this host group and use they instead global
     return hostgroup_settings_itr->second;
 }
+
 
 /* Calculate speed for all connnections */
 void recalculate_speed() {
@@ -2345,7 +2402,10 @@ void recalculate_speed() {
             }
 
             /* Moving average recalculation end */
-            ban_settings_t current_ban_settings = get_ban_settings_for_this_subnet( itr->first );
+            std::string host_group_name;
+            ban_settings_t current_ban_settings = get_ban_settings_for_this_ip(client_ip, host_group_name);
+
+            //logger << log4cpp::Priority::INFO << "We have found host group for this host as: " << host_group_name << ", subnet: " << convert_subnet_to_string(itr->first);
 
             if (we_should_ban_this_ip(current_average_speed_element, current_ban_settings)) {
                 std::string flow_attack_details = "";
@@ -2358,9 +2418,8 @@ void recalculate_speed() {
                 // TODO: we should pass type of ddos ban source (pps, flowd, bandwidth)!
                 execute_ip_ban(client_ip, *current_average_speed_element, flow_attack_details, itr->first);
             }
-            if (we_should_warn_this_ip(current_average_speed_element, current_ban_settings)) {
+            else if (we_should_warn_this_ip(current_average_speed_element, current_ban_settings) && ban_list.count(client_ip) == 0) {
                 std::string flow_attack_details = "";
-
                 if (enable_conection_tracking) {
                     flow_attack_details =
                     print_flow_tracking_for_ip(*flow_counter_ptr, convert_ip_as_uint_to_string(client_ip));
@@ -2417,6 +2476,7 @@ void recalculate_speed() {
 
     timeval_subtract(&speed_calculation_time, &finish_calc_time, &start_calc_time);
 }
+
 
 void print_screen_contents_into_file(std::string screen_data_stats_param) {
     std::ofstream screen_data_file;
@@ -3539,7 +3599,8 @@ void cleanup_ban_list() {
                 map_element* average_speed_element = &itr_average_speed->second[shift_in_vector];
 
                 // We get ban settings from host subnet
-                ban_settings_t current_ban_settings = get_ban_settings_for_this_subnet( itr->second.customer_network );
+                std::string host_group_name;
+                ban_settings_t current_ban_settings = get_ban_settings_for_this_ip(client_ip, host_group_name);
 
                 if (we_should_ban_this_ip(average_speed_element, current_ban_settings)) {
                     logger << log4cpp::Priority::ERROR << "Attack to IP " << client_ip_as_string
