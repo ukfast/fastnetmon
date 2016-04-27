@@ -2522,8 +2522,8 @@ void traffic_draw_programm() {
 
     output_buffer << "FastNetMon " << fastnetmon_version
                   << " FastVPS Eesti OU (c) VPS and dedicated: http://FastVPS.host"
-                  << "\nGlobal bans enabled: " << bansEnabled;
-                  << "\nWarns enabled: " << warnsEnabled;
+                  << "\nGlobal bans enabled: " << bansEnabled
+                  << "\nWarns enabled: " << warnsEnabled
                   << "\nIPs ordered by: " << sort_parameter << "\n";
 
     output_buffer << print_channel_speed("Incoming traffic", INCOMING) << std::endl;
