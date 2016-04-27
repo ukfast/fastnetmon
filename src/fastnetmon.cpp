@@ -1095,7 +1095,8 @@ bool load_configuration_file() {
             // Well, we parse host groups here
             parse_hostgroups(parsed_config[0], parsed_config[1]);
         } else {
-            logger << log4cpp::Priority::ERROR << "Can't parse config line: '" << line << "'";
+            logger << log4cpp::Priority::ERROR << "Can't parse config line: '" << line << "' - ABORTING STARTUP";
+            return false;
         }
     }
 
@@ -2224,14 +2225,16 @@ ban_settings_t get_ban_settings_for_this_ip(uint32_t ip, std::string& host_group
     subnet_t subnet = std::make_pair(ip, 32);
 
     //Check if the IP is within a subnet
+    uint32_t largestSubnet = 0;
     for(subnet_to_host_group_map_t::iterator iter = subnet_to_host_groups.begin(); iter != subnet_to_host_groups.end(); iter++)
     {
         if(in_subnet(subnet.first, iter->first.first, iter->first.second))
         {
             //Match
-            //std::cout << "\nFound a match: " << iter->second;
-            host_group_name = iter->second;
-            break;
+            if(iter->first.second > largestSubnet)
+            {
+                host_group_name = iter->second;
+            }
         }
     }
 
@@ -2509,11 +2512,19 @@ void traffic_draw_programm() {
         logger << log4cpp::Priority::INFO << "Unexpected sorter type: " << sort_parameter;
         sorter = PACKETS;
     }
+    std::string bansEnabled = "False";
+    std::string warnsEnabled = "False";
+
+    if(global_ban_settings.enable_ban)
+        bansEnabled = "True";
+    if(global_ban_settings.enable_warn)
+        warnsEnabled = "True";
 
     output_buffer << "FastNetMon " << fastnetmon_version
                   << " FastVPS Eesti OU (c) VPS and dedicated: http://FastVPS.host"
-                  << "\n"
-                  << "IPs ordered by: " << sort_parameter << "\n";
+                  << "\nGlobal bans enabled: " << bansEnabled;
+                  << "\nWarns enabled: " << warnsEnabled;
+                  << "\nIPs ordered by: " << sort_parameter << "\n";
 
     output_buffer << print_channel_speed("Incoming traffic", INCOMING) << std::endl;
 
